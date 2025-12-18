@@ -18,6 +18,15 @@
       justify-content: center;
     }
 
+    .cards-wrapper {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 40px; 
+    }
+
+
     /* ===== CARD ===== */
     .card {
       width: 100%;
@@ -184,7 +193,7 @@
   </style>
 </head>
 <body>
-
+<div class="cards-wrapper">
 <div class="card">
   <h2>🔑 Everon License Generator</h2>
 
@@ -218,6 +227,53 @@
     </div>
   </div>
 </div>
+<div class="card">
+  <h2>📱 IMEI Encode / Decode</h2>
+
+  <div class="field">
+    <label>IMEI (15 digits or encoded)</label>
+    <input
+      id="imeiInput"
+      placeholder="356789012345678"
+      maxlength="15"
+      inputmode="numeric"
+      oninput="this.value = this.value.replace(/\D/g, '').slice(0,15)"
+    />
+  </div>
+
+  <div class="field">
+    <label>Secret</label>
+    <div class="input-wrap">
+      <input
+        id="imeiSecret"
+        type="password"
+        placeholder="Enter secret"
+        oninput="this.value = this.value.toUpperCase()"
+      />
+      <button class="eye-btn" type="button" onclick="toggleIMEISecret()">
+        <svg id="eyeIconImei" viewBox="0 0 24 24" fill="none" stroke-width="2">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="copy-row">
+    <button class="btn-copy" onclick="encodeIMEI()">Encode</button>
+    <button class="btn-copy" onclick="decodeIMEI()">Decode</button>
+  </div>
+
+  <div class="field" style="margin-top:16px;">
+    <label>Result</label>
+    <textarea id="imeiOutput" readonly></textarea>
+
+    <div class="copy-row">
+      <button class="btn-copy" onclick="copyIMEI()">Copy</button>
+    </div>
+  </div>
+</div>
+</div>
 
 <!-- MODAL -->
 <div id="modal" class="modal-overlay" onclick="closeModal(event)">
@@ -227,6 +283,11 @@
     <button onclick="hideModal()">OK</button>
   </div>
 </div>
+
+
+
+
+
 
 <script>
   async function sha256(text) {
@@ -269,6 +330,65 @@
     );
   }
 </script>
+<script>
+  function toggleIMEISecret() {
+    const s = imeiSecret;
+    eyeIconImei.innerHTML = s.type === "password"
+      ? '<path d="M1 1l22 22"/>'
+      : '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>';
+    s.type = s.type === "password" ? "text" : "password";
+  }
+
+  function encodeIMEI() {
+    const imei = imeiInput.value.trim();
+    const secret = imeiSecret.value.trim();
+
+    if (!/^\d{15}$/.test(imei)) {
+      showModal("Invalid IMEI", "IMEI must be exactly 15 digits.");
+      return;
+    }
+    if (!secret) {
+      showModal("Missing Secret", "Secret is required.");
+      return;
+    }
+
+    const encoded = btoa(`${imei}:${secret}`);
+    imeiOutput.value = encoded;
+  }
+
+  function decodeIMEI() {
+    const encoded = imeiInput.value.trim();
+    const secret = imeiSecret.value.trim();
+
+    if (!encoded || !secret) {
+      showModal("Missing data", "Encoded value and secret are required.");
+      return;
+    }
+
+    try {
+      const decoded = atob(encoded);
+      if (!decoded.endsWith(":" + secret)) {
+        showModal("Invalid Secret", "Secret does not match encoded data.");
+        return;
+      }
+
+      imeiOutput.value = decoded.split(":")[0];
+    } catch {
+      showModal("Decode Failed", "Invalid encoded IMEI.");
+    }
+  }
+
+  function copyIMEI() {
+    if (!imeiOutput.value) {
+      showModal("Nothing to copy", "No result available.");
+      return;
+    }
+    navigator.clipboard.writeText(imeiOutput.value).then(() =>
+      showModal("Copied", "Result copied to clipboard.")
+    );
+  }
+</script>
+
 
 </body>
 </html>
