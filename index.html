@@ -270,6 +270,82 @@
     </div>
   </div>
 </div>
+
+<div class="card">
+  <h2>🏪 Customer Registration Code</h2>
+
+  <button class="btn" onclick="generateCustomerReg()">
+    Generate Registration Code
+  </button>
+
+  <div class="field" style="margin-top:16px;">
+    <label>Registration Code</label>
+    <textarea id="customerRegOutput" readonly></textarea>
+
+    <div class="copy-row">
+      <button class="btn-copy" onclick="copyCustomerReg()">Copy</button>
+    </div>
+  </div>
+
+  <div class="hint">
+    Format: EVxx-xxxx-xxxx (A–Z, 0–9)
+  </div>
+</div>
+
+
+
+
+
+<div class="card">
+  <h2>🔑 Registration Hash Generator</h2>
+
+  <div class="field">
+    <label>Registration Code</label>
+    <input
+      id="regPlain"
+      placeholder="EVSS-WRJV-66TD"
+      oninput="this.value = this.value.toUpperCase()"
+    />
+  </div>
+
+  <div class="field">
+    <label>SECRET</label>
+    <div class="input-wrap">
+      <input
+        id="regSecret"
+        type="password"
+        placeholder="Enter secret"
+        oninput="this.value = this.value.toUpperCase()"
+      />
+      <button class="eye-btn" type="button" onclick="toggleRegSecret()">
+        <svg id="eyeIconReg" viewBox="0 0 24 24" fill="none" stroke-width="2">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+    <div class="hint">
+      Same SECRET must be used in Google Apps Script & EverOn app
+    </div>
+  </div>
+
+  <button class="btn" onclick="generateRegHash()">Generate Hash</button>
+
+  <div class="field" style="margin-top:16px;">
+    <label>Registration Hash (Store this)</label>
+    <textarea id="regHashOutput" readonly></textarea>
+
+    <div class="copy-row">
+      <button class="btn-copy" onclick="copyRegHash()">Copy</button>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
 </div>
 
 <!-- MODAL -->
@@ -382,6 +458,87 @@
     }
     navigator.clipboard.writeText(imeiOutput.value).then(() =>
       showModal("Copied", "Result copied to clipboard.")
+    );
+  }
+</script>
+
+<script>
+  function randomChars(len) {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let out = "";
+    for (let i = 0; i < len; i++) {
+      out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
+  }
+
+  function generateCustomerReg() {
+    // EVxx-xxxx-xxxx
+    const part1 = randomChars(2);
+    const part2 = randomChars(4);
+    const part3 = randomChars(4);
+
+    const code = `EV${part1}-${part2}-${part3}`;
+    customerRegOutput.value = code;
+  }
+
+  function copyCustomerReg() {
+    if (!customerRegOutput.value) {
+      showModal("Nothing to copy", "Generate a registration code first.");
+      return;
+    }
+
+    navigator.clipboard.writeText(customerRegOutput.value).then(() =>
+      showModal("Copied", "Customer registration code copied.")
+    );
+  }
+</script>
+
+
+
+
+<script>
+  async function sha256(text) {
+    const buf = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(text)
+    );
+    return [...new Uint8Array(buf)]
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  function toggleRegSecret() {
+    const s = regSecret;
+    eyeIconReg.innerHTML = s.type === "password"
+      ? '<path d="M1 1l22 22"/>'
+      : '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>';
+    s.type = s.type === "password" ? "text" : "password";
+  }
+
+  async function generateRegHash() {
+    const reg = regPlain.value.trim().toUpperCase();
+    const secret = regSecret.value.trim().toUpperCase();
+
+    if (!reg || !secret) {
+      showModal("Missing Data", "Registration Code and SECRET are required.");
+      return;
+    }
+
+    const hash = await sha256(reg + secret);
+    regHashOutput.value = hash;
+
+    showModal("Generated", "Registration hash generated successfully.");
+  }
+
+  function copyRegHash() {
+    if (!regHashOutput.value) {
+      showModal("Nothing to copy", "Generate a hash first.");
+      return;
+    }
+
+    navigator.clipboard.writeText(regHashOutput.value).then(() =>
+      showModal("Copied", "Registration hash copied.")
     );
   }
 </script>
