@@ -29,11 +29,12 @@ jobs:
         run: |
           git config user.name "everon-bot"
           git config user.email "bot@everon"
-          git status --porcelain
+          
           if [ -n "$(git status --porcelain)" ]; then
-            git add license.json
+            git add registration.json
             git commit -m "Bind Telegram chat"
             git push
           else
             echo "No changes to commit"
           fi
+
