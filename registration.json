@@ -11,8 +11,8 @@
       "valid_until": "2026-01-01",
       "paid_at": "2025-01-01",
       "max_devices": 3,
-      "telegram_chat_id": null,
-      "telegram_bound_at": null,
+      "telegram_chat_id": 1620901429,
+      "telegram_bound_at": "2025-12-31T09:15:08.689Z",
       "notes": ""
     },
     {
