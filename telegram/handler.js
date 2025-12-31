@@ -12,7 +12,10 @@ async function sendTelegram(chatId, text) {
   await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text })
+    body: JSON.stringify({
+      chat_id: chatId,
+      text
+    })
   });
 }
 
@@ -22,25 +25,39 @@ async function run() {
   const payload = JSON.parse(process.env.TG_PAYLOAD);
   const msg = payload.message;
 
-  // ✅ Ignore non-text messages
+  // Ignore non-text messages
   if (!msg || !msg.text) return;
 
-  const chatId = msg.chat.id; // supports private or group
+  const chatId = msg.chat.id; // private or group
   const input = msg.text.trim().toUpperCase();
-  const SECRET = process.env.REG_SECRET;
+  const SECRET = (process.env.REG_SECRET || "").trim().toUpperCase();
+
+  if (!SECRET) {
+    console.error("REG_SECRET missing");
+    return;
+  }
 
   const hash = sha256(input + SECRET);
 
-  const data = JSON.parse(fs.readFileSync("license.json", "utf8"));
-  const match = data.find(r => r.reg_hash === hash);
+  // ✅ Load registration.json
+  const db = JSON.parse(
+    fs.readFileSync("registration.json", "utf8")
+  );
+
+  const match = db.registrations.find(
+    r => r.reg_hash === hash
+  );
 
   if (!match) {
     await sendTelegram(chatId, "❌ Invalid registration code.");
     return;
   }
 
-  // 🔒 Prevent rebinding
-  if (match.chat_id && match.chat_id !== chatId) {
+  // 🔒 Prevent rebinding to another chat
+  if (
+    match.telegram_chat_id &&
+    match.telegram_chat_id !== chatId
+  ) {
     await sendTelegram(
       chatId,
       "⚠️ This registration code is already linked to another chat."
@@ -48,12 +65,21 @@ async function run() {
     return;
   }
 
-  if (!match.chat_id) {
-    match.chat_id = chatId;
-    fs.writeFileSync("license.json", JSON.stringify(data, null, 2));
+  // ✅ First-time bind
+  if (!match.telegram_chat_id) {
+    match.telegram_chat_id = chatId;
+    match.telegram_bound_at = new Date().toISOString();
+
+    fs.writeFileSync(
+      "registration.json",
+      JSON.stringify(db, null, 2)
+    );
   }
 
-  await sendTelegram(chatId, "✅ Registration successful.");
+  await sendTelegram(
+    chatId,
+    "✅ Registration successful.\n\nThis chat is now linked for EverOn notifications."
+  );
 }
 
 run().catch(err => {
