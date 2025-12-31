@@ -18,6 +18,7 @@ async function sendTelegram(chatId, text, keyboard = null) {
   const body = {
     chat_id: chatId,
     text,
+    parse_mode: "Markdown",
   };
 
   if (keyboard) {
@@ -31,7 +32,7 @@ async function sendTelegram(chatId, text, keyboard = null) {
   });
 }
 
-// Standard register button (used everywhere)
+// Standard register button
 function registerKeyboard() {
   return {
     inline_keyboard: [
@@ -66,27 +67,48 @@ async function run() {
   const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
 
   // --------------------
+  // Detect already-registered chat (GLOBAL GUARD)
+  // --------------------
+  let chatId = null;
+
+  if (payload.message?.chat?.id) {
+    chatId = payload.message.chat.id;
+  } else if (payload.callback_query?.message?.chat?.id) {
+    chatId = payload.callback_query.message.chat.id;
+  }
+
+  const alreadyRegistered = chatId
+    ? db.registrations.find((r) => r.telegram_chat_id === chatId)
+    : null;
+
+  // --------------------
   // Handle button click
   // --------------------
   if (payload.callback_query) {
     const cb = payload.callback_query;
-    const chatId = cb.message.chat.id;
 
     if (cb.data === "REGISTER") {
-      await sendTelegram(
-        chatId,
-        "🧾 Please send your *Registration Code*.\n\nExample:\nABC123XYZ",
-        registerKeyboard()
-      );
+      if (alreadyRegistered) {
+        await sendTelegram(
+          chatId,
+          "✅ This chat is already registered.\n\nYou will receive EverOn notifications here."
+        );
+      } else {
+        await sendTelegram(
+          chatId,
+          "🧾 Please send your *Registration Code*.\n\nExample:\nABC123XYZ"
+        );
+      }
     }
-
     return;
   }
 
+  // --------------------
+  // Handle text message
+  // --------------------
   const msg = payload.message;
   if (!msg || !msg.text) return;
 
-  const chatId = msg.chat.id;
   const text = msg.text.trim();
   const input = text.toUpperCase();
 
@@ -94,10 +116,28 @@ async function run() {
   // /start command
   // --------------------
   if (input === "/START") {
+    if (alreadyRegistered) {
+      await sendTelegram(
+        chatId,
+        "✅ This chat is already registered.\n\nYou will receive EverOn notifications here."
+      );
+    } else {
+      await sendTelegram(
+        chatId,
+        "👋 Welcome to EverOn Bot\n\nFor the Store Owner, please register first.",
+        registerKeyboard()
+      );
+    }
+    return;
+  }
+
+  // --------------------
+  // BLOCK: chat already registered
+  // --------------------
+  if (alreadyRegistered) {
     await sendTelegram(
       chatId,
-      "👋 Welcome to EverOn Bot\n\nFor the Store Owner, Please register first.",
-      registerKeyboard()
+      "ℹ️ This chat is already registered.\n\nNo further action is required."
     );
     return;
   }
@@ -111,7 +151,7 @@ async function run() {
   if (!match) {
     await sendTelegram(
       chatId,
-      "❌ Invalid registration code.\n\nFor the Store Owner, Please register first.",
+      "❌ Invalid registration code.\n\nFor the Store Owner, please register first.",
       registerKeyboard()
     );
     return;
@@ -123,8 +163,7 @@ async function run() {
   if (match.status !== "active") {
     await sendTelegram(
       chatId,
-      "⛔ This registration is not active.\nPlease contact EverOn support.",
-      registerKeyboard()
+      "⛔ This registration is not active.\nPlease contact EverOn support."
     );
     return;
   }
@@ -139,45 +178,37 @@ async function run() {
     if (now > until) {
       await sendTelegram(
         chatId,
-        "⛔ This registration has expired.\nPlease renew your subscription.",
-        registerKeyboard()
+        "⛔ This registration has expired.\nPlease renew your subscription."
       );
       return;
     }
   }
 
   // --------------------
-  // Prevent rebinding
+  // Prevent reuse in another chat
   // --------------------
-  if (
-    match.telegram_chat_id &&
-    match.telegram_chat_id !== chatId
-  ) {
+  if (match.telegram_chat_id && match.telegram_chat_id !== chatId) {
     await sendTelegram(
       chatId,
-      "⚠️ This registration code is already linked to another Telegram chat.",
-      registerKeyboard()
+      "⚠️ This registration code is already linked to another Telegram chat."
     );
     return;
   }
 
   // --------------------
-  // First-time bind
+  // First-time bind (ONLY PLACE THAT WRITES)
   // --------------------
-  if (!match.telegram_chat_id) {
-    match.telegram_chat_id = chatId;
-    match.telegram_bound_at = new Date().toISOString();
+  match.telegram_chat_id = chatId;
+  match.telegram_bound_at = new Date().toISOString();
 
-    fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
-  }
+  fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
   // --------------------
   // Success
   // --------------------
   await sendTelegram(
     chatId,
-    "✅ Registration successful.\n\nThis chat is now linked for EverOn notifications.",
-    registerKeyboard()
+    "✅ Registration successful.\n\nThis chat is now linked for EverOn notifications."
   );
 }
 
