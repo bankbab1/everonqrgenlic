@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "updated_at": "2025-01-17",
+
+  "registrations": [
+    {
+      "reg_hash": "2986872abfea6e41d2c3e9dd28b838b77191bca6bc81d2e6d11b32a8a344df9b",
+      "reg_hint": "Q0hPS0JBTks6OkVWSzItVkYzTy1IT0lE",
+      "shop_name": "Shop A",
+      "max_devices": 3,
+      "telegram_chat_id": null,
+      "telegram_bound_at": null,
+      "notes": ""
+    },
+
+    {
+      "reg_hash": "f23f225b35647c2d2ec19d10e18e21430c62fb9d3496a5b1d4144210783c6b81",
+      "reg_hint": "Q0hPS0JBTks6OkVWV0stMVM5MS05NkpP",
+      "shop_name": "Shop B",
+      "max_devices": 2,
+      "telegram_chat_id": null,
+      "telegram_bound_at": null,
+      "notes": ""
+    }
+  ]
+}
