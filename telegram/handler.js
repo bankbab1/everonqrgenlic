@@ -142,6 +142,53 @@ async function run() {
   }
 
   // ====================================================
+// 1️⃣ HANDLE GITHUB → SEND SLIP IMAGE
+// ====================================================
+if (payload.type === "SEND_SLIP") {
+  const { chat_id, image_base64, meta } = payload;
+
+  if (!chat_id || !image_base64) {
+    console.error("Missing chat_id or image_base64");
+    return;
+  }
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error("TELEGRAM_BOT_TOKEN missing");
+    return;
+  }
+
+  // Convert base64 → Buffer
+  const buffer = Buffer.from(image_base64, "base64");
+
+  // Build caption
+  const caption =
+    "🧾 *Payment Slip Received*\n\n" +
+    `🏦 Bank: ${meta?.bank ?? "-"}\n` +
+    `🔢 Ref: ${meta?.ref ?? "-"}\n` +
+    `💰 Amount: ${meta?.amount ?? "-"}`;
+
+  // Send multipart/form-data to Telegram
+  const form = new FormData();
+  form.append("chat_id", chat_id);
+  form.append("caption", caption);
+  form.append("parse_mode", "Markdown");
+  form.append("photo", buffer, {
+    filename: "payment_slip.jpg",
+    contentType: "image/jpeg",
+  });
+
+  await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    method: "POST",
+    body: form,
+  });
+
+  console.log("✅ Payment slip sent to Telegram");
+  return; // ⛔ STOP HERE
+}
+
+  
+  // ====================================================
   // 2️⃣ TELEGRAM MESSAGE HANDLING (ONLY BELOW)
   // ====================================================
 
