@@ -8,6 +8,41 @@ function sha256(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
+// --------------------
+// EverOn QR helpers
+// --------------------
+function signEveronPayload(chatId, ts, secret) {
+  return crypto
+    .createHmac("sha256", secret)
+    .update(`${chatId}.${ts}`)
+    .digest("hex");
+}
+
+function buildEveronQRUrl(chatId, secret) {
+  const ts = Math.floor(Date.now() / 1000);
+
+  const payload = {
+    v: 1,
+    cid: String(chatId),
+    ts,
+  };
+
+  payload.sig = signEveronPayload(payload.cid, payload.ts, secret);
+
+  const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+
+  const deepLink =
+    `everon://telegram-link?payload=` + encodeURIComponent(base64);
+
+  // QR image service
+  return (
+    "https://api.qrserver.com/v1/create-qr-code/?" +
+    "size=360x360&data=" +
+    encodeURIComponent(deepLink)
+  );
+}
+
+
 async function sendTelegram(chatId, text, keyboard = null) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -31,6 +66,28 @@ async function sendTelegram(chatId, text, keyboard = null) {
     body: JSON.stringify(body),
   });
 }
+
+async function sendTelegramPhoto(chatId, photoUrl, caption = "") {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error("TELEGRAM_BOT_TOKEN missing");
+    return;
+  }
+
+  const body = {
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: "Markdown",
+  };
+
+  await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 
 // Standard register button
 function registerKeyboard() {
@@ -206,10 +263,27 @@ async function run() {
   // --------------------
   // Success
   // --------------------
-  await sendTelegram(
-    chatId,
-    "✅ Registration successful.\n\nThis chat is now linked for EverOn notifications."
-  );
+  // --------------------
+// Success + EverOn QR
+// --------------------
+await sendTelegram(
+  chatId,
+  "✅ *Registration successful*\n\n" +
+    "📲 Next step:\n" +
+    "Open your *EverOn device* → Payment Slip → Scan QR to link this chat."
+);
+
+const qrUrl = buildEveronQRUrl(chatId, SECRET);
+
+await sendTelegramPhoto(
+  chatId,
+  qrUrl,
+  "🔐 *Secure EverOn Link QR*\n\n" +
+    "• Only EverOn devices can use this QR\n" +
+    "• QR expires automatically\n\n" +
+    "After scanning, this chat will receive payment slips."
+);
+
 }
 
 // --------------------
