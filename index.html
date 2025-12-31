@@ -346,6 +346,66 @@
 
 
 
+<div class="card">
+  <h2>🧩 Registration Hint (Admin)</h2>
+
+  <div class="field">
+    <label>Registration Code or reg_hint</label>
+    <input
+      id="hintInput"
+      placeholder=""
+      autocapitalize="none"
+      autocomplete="off"
+      spellcheck="false"
+    />
+
+  </div>
+
+  <div class="field">
+    <label>SECRET</label>
+    <div class="input-wrap">
+      <input
+        id="hintSecret"
+        type="password"
+        placeholder="Enter secret"
+        oninput="this.value = this.value.toUpperCase()"
+      />
+      <button class="eye-btn" type="button" onclick="toggleHintSecret()">
+        <svg id="eyeIconHint" viewBox="0 0 24 24" fill="none" stroke-width="2">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+    <div class="hint">
+      Encode → store in JSON<br>
+      Decode → admin reference only
+    </div>
+  </div>
+
+  <div class="copy-row">
+    <button class="btn-copy" onclick="encodeRegHint()">Encode</button>
+    <button class="btn-copy" onclick="decodeRegHint()">Decode</button>
+  </div>
+
+  <div class="field" style="margin-top:16px;">
+    <label>Result</label>
+    <textarea id="hintOutput" readonly></textarea>
+
+    <div class="copy-row">
+      <button class="btn-copy" onclick="copyHint()">Copy</button>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
+
+
+
 </div>
 
 <!-- MODAL -->
@@ -542,6 +602,94 @@
     );
   }
 </script>
+
+
+
+
+
+<script>
+  function toggleHintSecret() {
+    const s = hintSecret;
+    eyeIconHint.innerHTML = s.type === "password"
+      ? '<path d="M1 1l22 22"/>'
+      : '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>';
+    s.type = s.type === "password" ? "text" : "password";
+  }
+
+  function normalizeSecret(v) {
+    return (v || "").trim().toUpperCase();
+  }
+
+  function normalizeReg(v) {
+    return (v || "").trim().toUpperCase();
+  }
+
+  function cleanB64(v) {
+    // remove whitespace/newlines + support URL-safe base64 (- and _)
+    return (v || "")
+      .trim()
+      .replace(/\s+/g, "")
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+  }
+
+  function encodeRegHint() {
+    const reg = normalizeReg(hintInput.value);
+    const secret = normalizeSecret(hintSecret.value);
+
+    if (!reg || !secret) {
+      showModal("Missing Data", "Registration Code and SECRET are required.");
+      return;
+    }
+
+    // deterministic: SECRET::REG
+    const payload = `${secret}::${reg}`;
+    const encoded = btoa(unescape(encodeURIComponent(payload))); // unicode-safe
+    hintOutput.value = encoded;
+
+    showModal("Encoded", "reg_hint generated.");
+  }
+
+  function decodeRegHint() {
+    const encoded = cleanB64(hintInput.value);
+    const secret = normalizeSecret(hintSecret.value);
+
+    if (!encoded || !secret) {
+      showModal("Missing Data", "reg_hint and SECRET are required.");
+      return;
+    }
+
+    try {
+      const decoded = decodeURIComponent(escape(atob(encoded))); // unicode-safe
+      const prefix = `${secret}::`;
+
+      if (!decoded.startsWith(prefix)) {
+        // show debug-friendly info (no secrets leaked)
+        showModal("Invalid", "SECRET does not match this reg_hint.");
+        return;
+      }
+
+      const reg = decoded.slice(prefix.length);
+      hintOutput.value = reg;
+
+      showModal("Decoded", "Registration code restored.");
+    } catch {
+      showModal("Error", "Invalid reg_hint format (Base64 decode failed).");
+    }
+  }
+
+  function copyHint() {
+    if (!hintOutput.value) {
+      showModal("Nothing to copy", "Generate or decode first.");
+      return;
+    }
+    navigator.clipboard.writeText(hintOutput.value).then(() =>
+      showModal("Copied", "Value copied.")
+    );
+  }
+</script>
+
+
 
 
 </body>
