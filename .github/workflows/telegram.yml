@@ -22,7 +22,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           REG_SECRET: ${{ secrets.REG_SECRET }}
-          TG_PAYLOAD: ${{ github.event.client_payload }}
+          TG_PAYLOAD: ${{ toJson(github.event.client_payload) }}
         run: node telegram/handler.js
 
       - name: Commit changes (if any)
