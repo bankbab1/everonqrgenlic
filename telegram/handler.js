@@ -120,31 +120,53 @@ async function run() {
     return;
   }
 
+  // ====================================================
+  // 1️⃣ HANDLE GITHUB → SEND TEST (FIRST, NO DB LOGIC)
+  // ====================================================
+  if (payload.type === "SEND_TEST") {
+    const chatId = payload.chat_id;
+
+    if (!chatId) {
+      console.error("Missing chat_id for SEND_TEST");
+      return;
+    }
+
+    await sendTelegram(
+      chatId,
+      "🧪 *EverOn Test Payment Slip*\n\n" +
+        "✅ Telegram connection is working correctly.\n\n" +
+        "You will receive real payment slips here."
+    );
+
+    return; // ⛔ STOP HERE
+  }
+
+  // ====================================================
+  // 2️⃣ TELEGRAM MESSAGE HANDLING (ONLY BELOW)
+  // ====================================================
+
   const dbPath = "registration.json";
   const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
 
-  // --------------------
-  // Detect already-registered chat (GLOBAL GUARD)
-  // --------------------
   let chatId = null;
 
   if (payload.message?.chat?.id) {
     chatId = payload.message.chat.id;
   } else if (payload.callback_query?.message?.chat?.id) {
     chatId = payload.callback_query.message.chat.id;
+  } else {
+    return; // nothing to do
   }
 
-  const alreadyRegistered = chatId
-    ? db.registrations.find((r) => r.telegram_chat_id === chatId)
-    : null;
+  const alreadyRegistered = db.registrations.find(
+    (r) => r.telegram_chat_id === chatId
+  );
 
-  // --------------------
-  // Handle button click
-  // --------------------
+  // ----------------------------------------------------
+  // Button click
+  // ----------------------------------------------------
   if (payload.callback_query) {
-    const cb = payload.callback_query;
-
-    if (cb.data === "REGISTER") {
+    if (payload.callback_query.data === "REGISTER") {
       if (alreadyRegistered) {
         await sendTelegram(
           chatId,
@@ -160,18 +182,15 @@ async function run() {
     return;
   }
 
-  // --------------------
-  // Handle text message
-  // --------------------
+  // ----------------------------------------------------
+  // Text message
+  // ----------------------------------------------------
   const msg = payload.message;
-  if (!msg || !msg.text) return;
+  if (!msg?.text) return;
 
-  const text = msg.text.trim();
-  const input = text.toUpperCase();
+  const input = msg.text.trim().toUpperCase();
 
-  // --------------------
-  // /start command
-  // --------------------
+  // /start
   if (input === "/START") {
     if (alreadyRegistered) {
       await sendTelegram(
@@ -188,9 +207,7 @@ async function run() {
     return;
   }
 
-  // --------------------
-  // BLOCK: chat already registered
-  // --------------------
+  // Block already registered
   if (alreadyRegistered) {
     await sendTelegram(
       chatId,
@@ -199,9 +216,9 @@ async function run() {
     return;
   }
 
-  // --------------------
-  // Try registration code
-  // --------------------
+  // ----------------------------------------------------
+  // Registration code flow
+  // ----------------------------------------------------
   const hash = sha256(input + SECRET);
   const match = db.registrations.find((r) => r.reg_hash === hash);
 
@@ -214,9 +231,6 @@ async function run() {
     return;
   }
 
-  // --------------------
-  // Status check
-  // --------------------
   if (match.status !== "active") {
     await sendTelegram(
       chatId,
@@ -225,13 +239,9 @@ async function run() {
     return;
   }
 
-  // --------------------
-  // Expiry check
-  // --------------------
   if (match.valid_until) {
     const now = new Date();
     const until = new Date(match.valid_until);
-
     if (now > until) {
       await sendTelegram(
         chatId,
@@ -241,9 +251,6 @@ async function run() {
     }
   }
 
-  // --------------------
-  // Prevent reuse in another chat
-  // --------------------
   if (match.telegram_chat_id && match.telegram_chat_id !== chatId) {
     await sendTelegram(
       chatId,
@@ -252,39 +259,28 @@ async function run() {
     return;
   }
 
-  // --------------------
-  // First-time bind (ONLY PLACE THAT WRITES)
-  // --------------------
+  // Bind chat
   match.telegram_chat_id = chatId;
   match.telegram_bound_at = new Date().toISOString();
-
   fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
-  // --------------------
-  // Success
-  // --------------------
-  // --------------------
-// Success + EverOn QR
-// --------------------
-await sendTelegram(
-  chatId,
-  "✅ *Registration successful*\n\n" +
-    "📲 Next step:\n" +
-    "Open your *EverOn device* → Payment Slip → Scan QR to link this chat."
-);
+  // Success + QR
+  await sendTelegram(
+    chatId,
+    "✅ *Registration successful*\n\n" +
+      "📲 Open your *EverOn device* → Payment Slip → Scan QR"
+  );
 
-const qrUrl = buildEveronQRUrl(chatId, SECRET);
-
-await sendTelegramPhoto(
-  chatId,
-  qrUrl,
-  "🔐 *Secure EverOn Link QR*\n\n" +
-    "• Only EverOn devices can use this QR\n" +
-    "• QR expires automatically\n\n" +
-    "After scanning, this chat will receive payment slips."
-);
-
+  const qrUrl = buildEveronQRUrl(chatId, SECRET);
+  await sendTelegramPhoto(
+    chatId,
+    qrUrl,
+    "🔐 *Secure EverOn Link QR*\n\n" +
+      "• Only EverOn devices can use this QR\n" +
+      "• QR expires automatically"
+  );
 }
+
 
 // --------------------
 run().catch((err) => {
