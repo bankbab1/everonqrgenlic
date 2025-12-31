@@ -4,16 +4,17 @@ on:
   repository_dispatch:
     types: [telegram]
 
+permissions:
+  contents: write   # REQUIRED to push license.json
+
 jobs:
   handle:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -22,15 +23,17 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           REG_SECRET: ${{ secrets.REG_SECRET }}
           TG_PAYLOAD: ${{ github.event.client_payload }}
-        run: |
-          node telegram/handler.js
+        run: node telegram/handler.js
 
-      - name: Commit changes
-        if: success()
+      - name: Commit changes (if any)
         run: |
           git config user.name "everon-bot"
           git config user.email "bot@everon"
-          git add license.json
-          git commit -m "Bind Telegram chat"
-          git push
-
+          git status --porcelain
+          if [ -n "$(git status --porcelain)" ]; then
+            git add license.json
+            git commit -m "Bind Telegram chat"
+            git push
+          else
+            echo "No changes to commit"
+          fi
