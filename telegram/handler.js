@@ -237,7 +237,7 @@ async function run() {
     }
 
     const qrUrl = buildEveronQRUrl(chatId, SECRET);
-    await sendTelegramPhoto(chatId, qrUrl, "🔐 *New EverOn Link QR*");
+    await sendTelegramPhoto(chatId, qrUrl, "🔐 *New EverOn Link QR*\n\n• Valid for 10 minutes");
     return;
   }
 
