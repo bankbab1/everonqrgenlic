@@ -1,3 +1,8 @@
+/**
+ * EverOn Telegram Bot Handler
+ * Supports: /start /help /regenqr /unregister
+ */
+
 const fs = require("fs");
 const crypto = require("crypto");
 
@@ -25,8 +30,9 @@ function buildEveronQRUrl(chatId, secret) {
   payload.sig = signEveronPayload(payload.cid, payload.ts, secret);
 
   const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+
   const deepLink =
-    `everon://telegram-link?payload=` + encodeURIComponent(base64);
+    "everon://telegram-link?payload=" + encodeURIComponent(base64);
 
   return (
     "https://api.qrserver.com/v1/create-qr-code/?" +
@@ -81,6 +87,7 @@ function commandKeyboard(isRegistered) {
     return {
       keyboard: [
         [{ text: "/start" }, { text: "/regenqr" }],
+        [{ text: "/unregister" }],
         [{ text: "/help" }],
       ],
       resize_keyboard: true,
@@ -90,14 +97,6 @@ function commandKeyboard(isRegistered) {
   return {
     keyboard: [[{ text: "/start" }], [{ text: "/help" }]],
     resize_keyboard: true,
-  };
-}
-
-function registeredInlineKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🔄 Re-generate Device QR", callback_data: "REGEN_QR" }],
-    ],
   };
 }
 
@@ -112,6 +111,7 @@ function instructionMessage(isRegistered) {
       "Available commands:\n" +
       "• /start – Show status\n" +
       "• /regenqr – Re-generate device QR\n" +
+      "• /unregister – Unlink this Telegram\n" +
       "• /help – Show instructions\n\n" +
       "Tap a button below 👇"
     );
@@ -152,6 +152,7 @@ async function run() {
     if (!chat_id || !image_base64) return;
 
     const buffer = Buffer.from(image_base64, "base64");
+
     const caption =
       "🧾 *Payment Slip Received*\n\n" +
       `🏦 Bank: ${meta?.bank ?? "-"}\n` +
@@ -180,6 +181,7 @@ async function run() {
   const chatId =
     payload.message?.chat?.id ||
     payload.callback_query?.message?.chat?.id;
+
   if (!chatId) return;
 
   const alreadyRegistered = db.registrations.find(
@@ -187,13 +189,10 @@ async function run() {
   );
 
   /* ----------------------------------------
-     CALLBACK BUTTONS
+     CALLBACKS
   ---------------------------------------- */
   if (payload.callback_query) {
-    if (
-      payload.callback_query.data === "REGEN_QR" &&
-      alreadyRegistered
-    ) {
+    if (payload.callback_query.data === "REGEN_QR" && alreadyRegistered) {
       const qrUrl = buildEveronQRUrl(chatId, SECRET);
       await sendTelegramPhoto(
         chatId,
@@ -205,25 +204,15 @@ async function run() {
   }
 
   /* ----------------------------------------
-     TEXT MESSAGES
+     TEXT COMMANDS
   ---------------------------------------- */
   const msg = payload.message;
   if (!msg?.text) return;
 
   const input = msg.text.trim().toUpperCase();
 
-  // /START
-  if (input === "/START") {
-    await sendTelegram(
-      chatId,
-      instructionMessage(!!alreadyRegistered),
-      commandKeyboard(!!alreadyRegistered)
-    );
-    return;
-  }
-
-  // /HELP
-  if (input === "/HELP") {
+  // /START or /HELP
+  if (input === "/START" || input === "/HELP") {
     await sendTelegram(
       chatId,
       instructionMessage(!!alreadyRegistered),
@@ -248,8 +237,31 @@ async function run() {
     return;
   }
 
+  // /UNREGISTER
+  if (input === "/UNREGISTER") {
+    if (!alreadyRegistered) {
+      await sendTelegram(
+        chatId,
+        "❌ This Telegram is not registered.\n\nUse /start to begin."
+      );
+      return;
+    }
+
+    alreadyRegistered.telegram_chat_id = null;
+    alreadyRegistered.telegram_bound_at = null;
+
+    fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
+
+    await sendTelegram(
+      chatId,
+      "✅ *Telegram unlinked successfully*\n\nYou can re-link anytime using /start",
+      commandKeyboard(false)
+    );
+    return;
+  }
+
   /* ----------------------------------------
-     ALREADY REGISTERED → SHOW HELP
+     REGISTRATION CODE FLOW
   ---------------------------------------- */
   if (alreadyRegistered) {
     await sendTelegram(
@@ -260,10 +272,6 @@ async function run() {
     return;
   }
 
-  /* ----------------------------------------
-     REGISTRATION CODE FLOW
-     (ONLY if looks like real code)
-  ---------------------------------------- */
   if (!/^[A-Z0-9]{6,32}$/.test(input)) {
     await sendTelegram(
       chatId,
@@ -286,6 +294,7 @@ async function run() {
 
   match.telegram_chat_id = chatId;
   match.telegram_bound_at = new Date().toISOString();
+
   fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
   await sendTelegram(chatId, "✅ *Registration successful*");
