@@ -1,12 +1,6 @@
 /**
  * EverOn Telegram Bot Handler
- * GitHub Actions safe (stateless)
- *
- * Flow:
- * /start → 🔐 Register → paste code → validate → link → QR
- *
- * Commands:
- * /start /help /regenqr /unregister
+ * Supports: /start /help /regenqr /unregister
  */
 
 const fs = require("fs");
@@ -17,27 +11,6 @@ const crypto = require("crypto");
 ---------------------------------------- */
 function sha256(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
-}
-
-function extractText(payload) {
-  return (
-    payload.message?.text ||
-    payload.message?.caption ||
-    payload.callback_query?.data ||
-    ""
-  ).trim();
-}
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function isActiveRegistration(r) {
-  if (!r) return false;
-  if (String(r.status || "").toLowerCase() !== "active") return false;
-  if (r.valid_from && today() < r.valid_from) return false;
-  if (r.valid_until && today() > r.valid_until) return false;
-  return true;
 }
 
 /* ----------------------------------------
@@ -52,10 +25,12 @@ function signEveronPayload(chatId, ts, secret) {
 
 function buildEveronQRUrl(chatId, secret) {
   const ts = Math.floor(Date.now() / 1000);
+
   const payload = { v: 1, cid: String(chatId), ts };
   payload.sig = signEveronPayload(payload.cid, payload.ts, secret);
 
   const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+
   const deepLink =
     "everon://telegram-link?payload=" + encodeURIComponent(base64);
 
@@ -73,7 +48,12 @@ async function sendTelegram(chatId, text, keyboard = null) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
 
-  const body = { chat_id: chatId, text, parse_mode: "Markdown" };
+  const body = {
+    chat_id: chatId,
+    text,
+    parse_mode: "Markdown",
+  };
+
   if (keyboard) body.reply_markup = keyboard;
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -102,67 +82,48 @@ async function sendTelegramPhoto(chatId, photoUrl, caption = "") {
 /* ----------------------------------------
    KEYBOARDS
 ---------------------------------------- */
-function mainKeyboard(registered) {
-  return registered
-    ? {
-        keyboard: [
-          [{ text: "/regenqr" }],
-          [{ text: "/unregister" }],
-          [{ text: "/help" }],
-        ],
-        resize_keyboard: true,
-      }
-    : {
-        keyboard: [[{ text: "🔐 Register" }], [{ text: "/help" }]],
-        resize_keyboard: true,
-      };
-}
+function commandKeyboard(isRegistered) {
+  if (isRegistered) {
+    return {
+      keyboard: [
+        [{ text: "/start" }, { text: "/regenqr" }],
+        [{ text: "/unregister" }],
+        [{ text: "/help" }],
+      ],
+      resize_keyboard: true,
+    };
+  }
 
-function regenInlineKeyboard() {
   return {
-    inline_keyboard: [
-      [{ text: "🔄 Re-generate Device QR", callback_data: "REGEN_QR" }],
-    ],
+    keyboard: [[{ text: "/start" }], [{ text: "/help" }]],
+    resize_keyboard: true,
   };
 }
 
 /* ----------------------------------------
-   MESSAGES
+   INSTRUCTION MESSAGE
 ---------------------------------------- */
-function introMessage(registered) {
-  return registered
-    ? (
-        "🤖 *EverOn Bot*\n\n" +
-        "✅ Telegram linked.\n\n" +
-        "Commands:\n" +
-        "• /regenqr – Re-generate device QR\n" +
-        "• /unregister – Unlink Telegram\n" +
-        "• /help – Show help\n\n" +
-        "Tap a button below 👇"
-      )
-    : (
-        "🤖 *EverOn Bot*\n\n" +
-        "This bot links your EverOn device.\n\n" +
-        "Tap *Register* or paste your registration code."
-      );
-}
+function instructionMessage(isRegistered) {
+  if (isRegistered) {
+    return (
+      "🤖 *EverOn Bot*\n\n" +
+      "You are already registered.\n\n" +
+      "Available commands:\n" +
+      "• /start – Show status\n" +
+      "• /regenqr – Re-generate device QR\n" +
+      "• /unregister – Unlink this Telegram\n" +
+      "• /help – Show instructions\n\n" +
+      "Tap a button below 👇"
+    );
+  }
 
-function helpMessage(registered) {
-  return registered
-    ? (
-        "🤖 *EverOn Bot – Help*\n\n" +
-        "• /start – Show status\n" +
-        "• /regenqr – Re-generate device QR\n" +
-        "• /unregister – Unlink Telegram\n" +
-        "• /help – Show this help"
-      )
-    : (
-        "🤖 *EverOn Bot – Help*\n\n" +
-        "• /start – Start registration\n" +
-        "• /register – Register device\n" +
-        "• /help – Show this help\n\n" +
-        "After /start or /register, paste your registration code."
-      );
+  return (
+    "🤖 *EverOn Bot*\n\n" +
+    "This bot links your EverOn device.\n\n" +
+    "Available commands:\n" +
+    "• /start – Start registration\n" +
+    "• /help – Show instructions"
+  );
 }
 
 /* ----------------------------------------
@@ -175,21 +136,63 @@ async function run() {
   const SECRET = (process.env.REG_SECRET || "").trim().toUpperCase();
   if (!SECRET) return;
 
+  /* ----------------------------------------
+     SYSTEM EVENTS (FROM APP)
+  ---------------------------------------- */
+  if (payload.type === "SEND_TEST") {
+    await sendTelegram(
+      payload.chat_id,
+      "🧪 *EverOn Test Payment Slip*\n\n✅ Telegram connection OK"
+    );
+    return;
+  }
+
+  if (payload.type === "SEND_SLIP") {
+    const { chat_id, image_base64, meta } = payload;
+    if (!chat_id || !image_base64) return;
+
+    const buffer = Buffer.from(image_base64, "base64");
+
+    const caption =
+      "🧾 *Payment Slip Received*\n\n" +
+      `🏦 Bank: ${meta?.bank ?? "-"}\n` +
+      `🔢 Ref: ${meta?.ref ?? "-"}\n` +
+      `💰 Amount: ${meta?.amount ?? "-"}`;
+
+    const form = new FormData();
+    form.append("chat_id", chat_id);
+    form.append("photo", buffer, { filename: "slip.jpg" });
+    form.append("caption", caption);
+    form.append("parse_mode", "Markdown");
+
+    await fetch(
+      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`,
+      { method: "POST", body: form }
+    );
+    return;
+  }
+
+  /* ----------------------------------------
+     TELEGRAM MESSAGE HANDLING
+  ---------------------------------------- */
   const dbPath = "registration.json";
   const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
 
   const chatId =
     payload.message?.chat?.id ||
     payload.callback_query?.message?.chat?.id;
+
   if (!chatId) return;
 
-  const registered = db.registrations.find(
+  const alreadyRegistered = db.registrations.find(
     (r) => r.telegram_chat_id === chatId
   );
 
-  /* ---------- CALLBACK (INLINE BUTTON) ---------- */
+  /* ----------------------------------------
+     CALLBACKS
+  ---------------------------------------- */
   if (payload.callback_query) {
-    if (payload.callback_query.data === "REGEN_QR" && registered) {
+    if (payload.callback_query.data === "REGEN_QR" && alreadyRegistered) {
       const qrUrl = buildEveronQRUrl(chatId, SECRET);
       await sendTelegramPhoto(
         chatId,
@@ -200,48 +203,28 @@ async function run() {
     return;
   }
 
-  const input = extractText(payload).toUpperCase();
-  if (!input) return;
+  /* ----------------------------------------
+     TEXT COMMANDS
+  ---------------------------------------- */
+  const msg = payload.message;
+  if (!msg?.text) return;
 
-  /* ---------- /START ---------- */
-  if (input === "/START") {
+  const input = msg.text.trim().toUpperCase();
+
+  // /START or /HELP
+  if (input === "/START" || input === "/HELP") {
     await sendTelegram(
       chatId,
-      introMessage(!!registered),
-      mainKeyboard(!!registered)
+      instructionMessage(!!alreadyRegistered),
+      commandKeyboard(!!alreadyRegistered)
     );
     return;
   }
 
-  /* ---------- /HELP ---------- */
-  if (input === "/HELP") {
-    await sendTelegram(
-      chatId,
-      helpMessage(!!registered),
-      mainKeyboard(!!registered)
-    );
-    return;
-  }
-
-  /* ---------- /REGISTER ---------- */
-  if (input === "/REGISTER" || input === "🔐 REGISTER") {
-    if (registered) {
-      await sendTelegram(chatId, "✅ You are already registered.");
-      return;
-    }
-
-    await sendTelegram(
-      chatId,
-      "🔐 *Register Device*\n\nPlease paste your registration code now.",
-      { remove_keyboard: true }
-    );
-    return;
-  }
-
-  /* ---------- /REGENQR ---------- */
+  // /REGENQR
   if (input === "/REGENQR") {
-    if (!registered) {
-      await sendTelegram(chatId, "❌ Please register first.");
+    if (!alreadyRegistered) {
+      await sendTelegram(chatId, "❌ Please register first using /start");
       return;
     }
 
@@ -254,41 +237,46 @@ async function run() {
     return;
   }
 
-  /* ---------- /UNREGISTER ---------- */
+  // /UNREGISTER
   if (input === "/UNREGISTER") {
-    if (!registered) {
-      await sendTelegram(chatId, "❌ This Telegram is not registered.");
+    if (!alreadyRegistered) {
+      await sendTelegram(
+        chatId,
+        "❌ This Telegram is not registered.\n\nUse /start to begin."
+      );
       return;
     }
 
-    registered.telegram_chat_id = null;
-    registered.telegram_bound_at = null;
+    alreadyRegistered.telegram_chat_id = null;
+    alreadyRegistered.telegram_bound_at = null;
+
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
     await sendTelegram(
       chatId,
-      "✅ *Telegram unlinked successfully.*",
-      mainKeyboard(false)
+      "✅ *Telegram unlinked successfully*\n\nYou can re-link anytime using /start",
+      commandKeyboard(false)
     );
     return;
   }
 
-  /* ---------- ALREADY REGISTERED ---------- */
-  if (registered) {
+  /* ----------------------------------------
+     REGISTRATION CODE FLOW
+  ---------------------------------------- */
+  if (alreadyRegistered) {
     await sendTelegram(
       chatId,
-      introMessage(true),
-      mainKeyboard(true)
+      instructionMessage(true),
+      commandKeyboard(true)
     );
     return;
   }
 
-  /* ---------- REGISTRATION CODE FLOW (PROVEN) ---------- */
   if (!/^[A-Z0-9]{6,32}$/.test(input)) {
     await sendTelegram(
       chatId,
-      introMessage(false),
-      mainKeyboard(false)
+      instructionMessage(false),
+      commandKeyboard(false)
     );
     return;
   }
@@ -304,27 +292,18 @@ async function run() {
     return;
   }
 
-  if (!isActiveRegistration(match)) {
-    await sendTelegram(chatId, "❌ Registration inactive or expired.");
-    return;
-  }
-
   match.telegram_chat_id = chatId;
   match.telegram_bound_at = new Date().toISOString();
+
   fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
-  await sendTelegram(
-    chatId,
-    "🎉 *Registration successful!*",
-    mainKeyboard(true)
-  );
+  await sendTelegram(chatId, "✅ *Registration successful*");
 
   const qrUrl = buildEveronQRUrl(chatId, SECRET);
   await sendTelegramPhoto(
     chatId,
     qrUrl,
-    "🔐 *Secure EverOn Link QR*\n\n• Valid for 10 minutes",
-    regenInlineKeyboard()
+    "🔐 *Secure EverOn Link QR*\n\n• Valid for 10 minutes"
   );
 }
 
