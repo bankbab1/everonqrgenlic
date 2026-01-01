@@ -1,7 +1,9 @@
 /**
- * EverOn Telegram Bot Handler (GitHub Actions / Stateless Safe)
+ * EverOn Telegram Bot Handler
+ * Stateless-safe (GitHub Actions)
+ *
  * Flow:
- * /start → Register button (optional prompt) → enter code → validate → link → QR
+ * /start → Register (optional) → enter code → validate → link → QR
  *
  * Commands:
  * /start /help /regenqr /unregister
@@ -13,53 +15,59 @@ const crypto = require("crypto");
 /* ----------------------------------------
    HELPERS
 ---------------------------------------- */
+
 function sha256(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
-function nowISODate() {
-  // compare by date only (YYYY-MM-DD)
+function extractText(payload) {
+  return (
+    payload.message?.text ||
+    payload.message?.caption ||
+    payload.callback_query?.data ||
+    ""
+  ).trim();
+}
+
+function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isCodeFormat(input) {
-  return /^[A-Z0-9]{6,32}$/.test(input);
+function isCodeFormat(text) {
+  return /^[A-Z0-9]{6,32}$/.test(text);
 }
 
 function isRegistered(db, chatId) {
-  return db.registrations.find((r) => r.telegram_chat_id === chatId);
+  return db.registrations.find(r => r.telegram_chat_id === chatId);
+}
+
+function findByRegCode(db, code, secret) {
+  const hash = sha256(code + secret);
+  return db.registrations.find(r => r.reg_hash === hash);
 }
 
 function isRegistrationActive(r) {
-  const today = nowISODate();
-
   if (!r) return { ok: false, reason: "not_found" };
 
-  // status check
   if (String(r.status || "").toLowerCase() !== "active") {
     return { ok: false, reason: "not_active" };
   }
 
-  // date check (if fields exist)
-  if (r.valid_from && today < r.valid_from) {
-    return { ok: false, reason: "not_started" };
-  }
+  const now = today();
 
-  if (r.valid_until && today > r.valid_until) {
+  if (r.valid_from && now < r.valid_from)
+    return { ok: false, reason: "not_started" };
+
+  if (r.valid_until && now > r.valid_until)
     return { ok: false, reason: "expired" };
-  }
 
   return { ok: true };
 }
 
-function findByRegCode(db, regCode, secret) {
-  const hash = sha256(regCode + secret);
-  return db.registrations.find((r) => r.reg_hash === hash);
-}
-
 /* ----------------------------------------
-   EVERON QR HELPERS
+   EVERON QR
 ---------------------------------------- */
+
 function signEveronPayload(chatId, ts, secret) {
   return crypto
     .createHmac("sha256", secret)
@@ -88,18 +96,14 @@ function buildEveronQRUrl(chatId, secret) {
 }
 
 /* ----------------------------------------
-   TELEGRAM HELPERS
+   TELEGRAM API
 ---------------------------------------- */
+
 async function sendTelegram(chatId, text, keyboard = null) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
 
-  const body = {
-    chat_id: chatId,
-    text,
-    parse_mode: "Markdown",
-  };
-
+  const body = { chat_id: chatId, text, parse_mode: "Markdown" };
   if (keyboard) body.reply_markup = keyboard;
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -126,52 +130,35 @@ async function sendTelegramPhoto(chatId, photoUrl, caption = "") {
 }
 
 /* ----------------------------------------
-   KEYBOARDS
+   UI
 ---------------------------------------- */
-function commandKeyboard(registered) {
-  if (registered) {
-    return {
-      keyboard: [
-        [{ text: "/regenqr" }],
-        [{ text: "/unregister" }],
-        [{ text: "/help" }],
-      ],
-      resize_keyboard: true,
-    };
-  }
 
-  return {
-    keyboard: [[{ text: "🔐 Register" }], [{ text: "/help" }]],
-    resize_keyboard: true,
-  };
+function keyboard(registered) {
+  return registered
+    ? {
+        keyboard: [
+          [{ text: "/regenqr" }],
+          [{ text: "/unregister" }],
+          [{ text: "/help" }],
+        ],
+        resize_keyboard: true,
+      }
+    : {
+        keyboard: [[{ text: "🔐 Register" }], [{ text: "/help" }]],
+        resize_keyboard: true,
+      };
+}
+
+function intro(registered) {
+  return registered
+    ? "🤖 *EverOn Bot*\n\n✅ Telegram linked.\n\n• /regenqr\n• /unregister\n• /help"
+    : "🤖 *EverOn Bot*\n\nThis bot links your EverOn device.\n\nTap *Register* or paste your registration code.";
 }
 
 /* ----------------------------------------
-   MESSAGES
+   MAIN
 ---------------------------------------- */
-function instructionMessage(registered) {
-  if (registered) {
-    return (
-      "🤖 *EverOn Bot*\n\n" +
-      "✅ Your Telegram is linked.\n\n" +
-      "Commands:\n" +
-      "• /regenqr – Generate device QR\n" +
-      "• /unregister – Unlink Telegram\n" +
-      "• /help – Show help"
-    );
-  }
 
-  return (
-    "🤖 *EverOn Bot*\n\n" +
-    "This bot links your EverOn device.\n\n" +
-    "Tap *Register* then enter your registration code.\n" +
-    "_(You can also paste the code directly.)_"
-  );
-}
-
-/* ----------------------------------------
-   MAIN HANDLER
----------------------------------------- */
 async function run() {
   if (!process.env.TG_PAYLOAD) return;
 
@@ -179,68 +166,33 @@ async function run() {
   const SECRET = (process.env.REG_SECRET || "").trim().toUpperCase();
   if (!SECRET) return;
 
-  /* ----------------------------------------
-     SYSTEM EVENTS (FROM APP)
-  ---------------------------------------- */
+  /* ---------- SYSTEM EVENTS ---------- */
+
   if (payload.type === "SEND_TEST") {
-    await sendTelegram(
-      payload.chat_id,
-      "🧪 *EverOn Test*\n\n✅ Telegram connection OK"
-    );
+    await sendTelegram(payload.chat_id, "🧪 *EverOn Test*\n\n✅ OK");
     return;
   }
 
-  if (payload.type === "SEND_SLIP") {
-    const { chat_id, image_base64, meta } = payload;
-    if (!chat_id || !image_base64) return;
+  /* ---------- MESSAGE ---------- */
 
-    const buffer = Buffer.from(image_base64, "base64");
+  const chatId =
+    payload.message?.chat?.id ||
+    payload.callback_query?.message?.chat?.id;
 
-    const caption =
-      "🧾 *Payment Slip*\n\n" +
-      `🏦 Bank: ${meta?.bank ?? "-"}\n` +
-      `🔢 Ref: ${meta?.ref ?? "-"}\n` +
-      `💰 Amount: ${meta?.amount ?? "-"}`;
+  if (!chatId) return;
 
-    const form = new FormData();
-    form.append("chat_id", chat_id);
-    form.append("photo", buffer, { filename: "slip.jpg" });
-    form.append("caption", caption);
-    form.append("parse_mode", "Markdown");
+  const input = extractText(payload).toUpperCase();
+  if (!input) return;
 
-    await fetch(
-      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`,
-      { method: "POST", body: form }
-    );
-    return;
-  }
-
-  /* ----------------------------------------
-     TELEGRAM MESSAGE HANDLING
-  ---------------------------------------- */
   const dbPath = "registration.json";
   const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
 
-  const chatId =
-    payload.message?.chat?.id || payload.callback_query?.message?.chat?.id;
-  if (!chatId) return;
-
-  const msg = payload.message;
-  if (!msg?.text) return;
-
-  const input = msg.text.trim().toUpperCase();
-
   let registered = isRegistered(db, chatId);
 
-  /* ----------------------------------------
-     BASIC COMMANDS
-  ---------------------------------------- */
+  /* ---------- COMMANDS ---------- */
+
   if (input === "/START" || input === "/HELP") {
-    await sendTelegram(
-      chatId,
-      instructionMessage(!!registered),
-      commandKeyboard(!!registered)
-    );
+    await sendTelegram(chatId, intro(!!registered), keyboard(!!registered));
     return;
   }
 
@@ -250,18 +202,14 @@ async function run() {
       return;
     }
 
-    const qrUrl = buildEveronQRUrl(chatId, SECRET);
-    await sendTelegramPhoto(
-      chatId,
-      qrUrl,
-      "🔐 *EverOn Device QR*\n\n• Valid for 10 minutes"
-    );
+    const qr = buildEveronQRUrl(chatId, SECRET);
+    await sendTelegramPhoto(chatId, qr, "🔐 *EverOn QR*\n• Valid 10 minutes");
     return;
   }
 
   if (input === "/UNREGISTER") {
     if (!registered) {
-      await sendTelegram(chatId, "❌ This Telegram is not registered.");
+      await sendTelegram(chatId, "❌ Not registered.");
       return;
     }
 
@@ -269,21 +217,13 @@ async function run() {
     registered.telegram_bound_at = null;
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
-    await sendTelegram(
-      chatId,
-      "✅ *Telegram unlinked successfully*",
-      commandKeyboard(false)
-    );
+    await sendTelegram(chatId, "✅ Unlinked.", keyboard(false));
     return;
   }
 
-  /* ----------------------------------------
-     REGISTER BUTTON (PROMPT ONLY)
-     (No memory needed)
-  ---------------------------------------- */
   if (input === "🔐 REGISTER") {
     if (registered) {
-      await sendTelegram(chatId, "✅ You are already registered.");
+      await sendTelegram(chatId, "✅ Already registered.");
       return;
     }
 
@@ -295,67 +235,43 @@ async function run() {
     return;
   }
 
-  /* ----------------------------------------
-     ✅ REGISTRATION CODE (STATELESS SAFE)
-     If not registered + message looks like code,
-     validate immediately (NO registerMode needed).
-  ---------------------------------------- */
+  /* ---------- REGISTRATION CODE ---------- */
+
   if (!registered && isCodeFormat(input)) {
     const match = findByRegCode(db, input, SECRET);
 
     if (!match) {
-      await sendTelegram(
-        chatId,
-        "❌ Invalid registration code.\n\nPlease try again.",
-        commandKeyboard(false)
-      );
+      await sendTelegram(chatId, "❌ Invalid registration code.", keyboard(false));
       return;
     }
 
-    // subscription/status/date checks
-    const activeCheck = isRegistrationActive(match);
-    if (!activeCheck.ok) {
-      let reason = "❌ This registration is not active.";
-      if (activeCheck.reason === "expired") reason = "❌ Subscription expired.";
-      if (activeCheck.reason === "not_started")
-        reason = "❌ Subscription not started yet.";
-      if (activeCheck.reason === "not_active")
-        reason = "❌ Registration status is not active.";
-
-      await sendTelegram(chatId, reason, commandKeyboard(false));
+    const check = isRegistrationActive(match);
+    if (!check.ok) {
+      const msg =
+        check.reason === "expired"
+          ? "❌ Subscription expired."
+          : "❌ Registration inactive.";
+      await sendTelegram(chatId, msg, keyboard(false));
       return;
     }
 
-    // bind
     match.telegram_chat_id = chatId;
     match.telegram_bound_at = new Date().toISOString();
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
     registered = match;
 
-    await sendTelegram(
-      chatId,
-      "🎉 *Registration successful!*",
-      commandKeyboard(true)
-    );
+    await sendTelegram(chatId, "🎉 *Registration successful!*", keyboard(true));
 
-    const qrUrl = buildEveronQRUrl(chatId, SECRET);
-    await sendTelegramPhoto(
-      chatId,
-      qrUrl,
-      "🔐 *Secure EverOn Link QR*\n\n• Valid for 10 minutes"
-    );
+    const qr = buildEveronQRUrl(chatId, SECRET);
+    await sendTelegramPhoto(chatId, qr, "🔐 *Secure EverOn Link QR*\n• 10 minutes");
+
     return;
   }
 
-  /* ----------------------------------------
-     FALLBACK
-  ---------------------------------------- */
-  await sendTelegram(
-    chatId,
-    instructionMessage(!!registered),
-    commandKeyboard(!!registered)
-  );
+  /* ---------- FALLBACK ---------- */
+
+  await sendTelegram(chatId, intro(!!registered), keyboard(!!registered));
 }
 
 run().catch(console.error);
