@@ -1,7 +1,7 @@
 /**
- * EverOn Telegram Bot Handler
+ * EverOn Telegram Bot Handler (GitHub Actions / Stateless Safe)
  * Flow:
- * /start → Register → enter code → validate → link → QR
+ * /start → Register button (optional prompt) → enter code → validate → link → QR
  *
  * Commands:
  * /start /help /regenqr /unregister
@@ -10,9 +10,6 @@
 const fs = require("fs");
 const crypto = require("crypto");
 
-// 🔐 Temporary registration mode (per execution)
-const registerMode = new Set();
-
 /* ----------------------------------------
    HELPERS
 ---------------------------------------- */
@@ -20,10 +17,44 @@ function sha256(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
+function nowISODate() {
+  // compare by date only (YYYY-MM-DD)
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isCodeFormat(input) {
+  return /^[A-Z0-9]{6,32}$/.test(input);
+}
+
 function isRegistered(db, chatId) {
-  return db.registrations.find(
-    (r) => r.telegram_chat_id === chatId
-  );
+  return db.registrations.find((r) => r.telegram_chat_id === chatId);
+}
+
+function isRegistrationActive(r) {
+  const today = nowISODate();
+
+  if (!r) return { ok: false, reason: "not_found" };
+
+  // status check
+  if (String(r.status || "").toLowerCase() !== "active") {
+    return { ok: false, reason: "not_active" };
+  }
+
+  // date check (if fields exist)
+  if (r.valid_from && today < r.valid_from) {
+    return { ok: false, reason: "not_started" };
+  }
+
+  if (r.valid_until && today > r.valid_until) {
+    return { ok: false, reason: "expired" };
+  }
+
+  return { ok: true };
+}
+
+function findByRegCode(db, regCode, secret) {
+  const hash = sha256(regCode + secret);
+  return db.registrations.find((r) => r.reg_hash === hash);
 }
 
 /* ----------------------------------------
@@ -47,8 +78,7 @@ function buildEveronQRUrl(chatId, secret) {
   };
 
   const base64 = Buffer.from(JSON.stringify(payload)).toString("base64");
-  const deepLink =
-    "everon://telegram-link?payload=" + encodeURIComponent(base64);
+  const deepLink = "everon://telegram-link?payload=" + encodeURIComponent(base64);
 
   return (
     "https://api.qrserver.com/v1/create-qr-code/?" +
@@ -111,10 +141,7 @@ function commandKeyboard(registered) {
   }
 
   return {
-    keyboard: [
-      [{ text: "🔐 Register" }],
-      [{ text: "/help" }],
-    ],
+    keyboard: [[{ text: "🔐 Register" }], [{ text: "/help" }]],
     resize_keyboard: true,
   };
 }
@@ -137,7 +164,8 @@ function instructionMessage(registered) {
   return (
     "🤖 *EverOn Bot*\n\n" +
     "This bot links your EverOn device.\n\n" +
-    "Tap *Register* to begin linking."
+    "Tap *Register* then enter your registration code.\n" +
+    "_(You can also paste the code directly.)_"
   );
 }
 
@@ -194,8 +222,7 @@ async function run() {
   const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
 
   const chatId =
-    payload.message?.chat?.id ||
-    payload.callback_query?.message?.chat?.id;
+    payload.message?.chat?.id || payload.callback_query?.message?.chat?.id;
   if (!chatId) return;
 
   const msg = payload.message;
@@ -251,7 +278,8 @@ async function run() {
   }
 
   /* ----------------------------------------
-     ENTER REGISTER MODE
+     REGISTER BUTTON (PROMPT ONLY)
+     (No memory needed)
   ---------------------------------------- */
   if (input === "🔐 REGISTER") {
     if (registered) {
@@ -259,42 +287,50 @@ async function run() {
       return;
     }
 
-    registerMode.add(chatId);
-
     await sendTelegram(
       chatId,
-      "🔐 *Register Device*\n\nPlease enter your registration code.",
+      "🔐 *Register Device*\n\nPlease enter your registration code now.",
       { remove_keyboard: true }
     );
     return;
   }
 
   /* ----------------------------------------
-     REGISTRATION CODE FLOW
+     ✅ REGISTRATION CODE (STATELESS SAFE)
+     If not registered + message looks like code,
+     validate immediately (NO registerMode needed).
   ---------------------------------------- */
-  if (registerMode.has(chatId)) {
-    if (!/^[A-Z0-9]{6,32}$/.test(input)) {
-      await sendTelegram(chatId, "❌ Invalid code format.");
-      return;
-    }
-
-    const hash = sha256(input + SECRET);
-    const match = db.registrations.find(
-      (r) => r.reg_hash === hash
-    );
+  if (!registered && isCodeFormat(input)) {
+    const match = findByRegCode(db, input, SECRET);
 
     if (!match) {
-      await sendTelegram(chatId, "❌ Invalid registration code.");
+      await sendTelegram(
+        chatId,
+        "❌ Invalid registration code.\n\nPlease try again.",
+        commandKeyboard(false)
+      );
       return;
     }
 
+    // subscription/status/date checks
+    const activeCheck = isRegistrationActive(match);
+    if (!activeCheck.ok) {
+      let reason = "❌ This registration is not active.";
+      if (activeCheck.reason === "expired") reason = "❌ Subscription expired.";
+      if (activeCheck.reason === "not_started")
+        reason = "❌ Subscription not started yet.";
+      if (activeCheck.reason === "not_active")
+        reason = "❌ Registration status is not active.";
+
+      await sendTelegram(chatId, reason, commandKeyboard(false));
+      return;
+    }
+
+    // bind
     match.telegram_chat_id = chatId;
     match.telegram_bound_at = new Date().toISOString();
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
-    registerMode.delete(chatId);
-
-    // 🔑 RE-CHECK STATE
     registered = match;
 
     await sendTelegram(
