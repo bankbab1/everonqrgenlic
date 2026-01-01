@@ -86,7 +86,11 @@ async function sendTelegramPhoto(chatId, photoUrl, caption = "") {
 function commandKeyboard(isRegistered) {
   return isRegistered
     ? {
-        keyboard: [[{ text: "/start" }, { text: "/regenqr" }], [{ text: "/help" }]],
+        keyboard: [
+          [{ text: "/start" }, { text: "/regenqr" }],
+          [{ text: "/unregister" }],
+          [{ text: "/help" }],
+        ],
         resize_keyboard: true,
       }
     : {
@@ -122,7 +126,7 @@ async function run() {
 
   const input = msg.text.trim().toUpperCase();
 
-  // /START or /HELP
+  /* ---------- /START or /HELP ---------- */
   if (input === "/START" || input === "/HELP") {
     await sendTelegram(
       chatId,
@@ -134,7 +138,7 @@ async function run() {
     return;
   }
 
-  // /REGENQR
+  /* ---------- /REGENQR ---------- */
   if (input === "/REGENQR") {
     if (!alreadyRegistered) {
       await sendTelegram(chatId, "❌ Please register first.");
@@ -150,7 +154,26 @@ async function run() {
     return;
   }
 
-  // If already registered, stop here
+  /* ---------- /UNREGISTER ---------- */
+  if (input === "/UNREGISTER") {
+    if (!alreadyRegistered) {
+      await sendTelegram(chatId, "❌ This Telegram is not registered.");
+      return;
+    }
+
+    alreadyRegistered.telegram_chat_id = null;
+    alreadyRegistered.telegram_bound_at = null;
+    fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
+
+    await sendTelegram(
+      chatId,
+      "✅ *Telegram unlinked successfully.*",
+      commandKeyboard(false)
+    );
+    return;
+  }
+
+  /* ---------- IF ALREADY REGISTERED ---------- */
   if (alreadyRegistered) {
     await sendTelegram(
       chatId,
@@ -161,7 +184,7 @@ async function run() {
   }
 
   /* ----------------------------------------
-     REGISTRATION CODE FLOW (THIS IS THE KEY)
+     REGISTRATION CODE FLOW
   ---------------------------------------- */
   if (!/^[A-Z0-9]{6,32}$/.test(input)) {
     await sendTelegram(
