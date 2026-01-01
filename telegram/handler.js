@@ -8,7 +8,7 @@ function sha256(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
-// Accept: ABC123, EVK2-VF3O-HOID, CHOKBANK::EVK2-VF3O-HOID
+// Accept: ABC123
 function looksLikeRegCode(input) {
   return /^[A-Z0-9:-]{6,64}$/.test(input); // allow - and :
 }
@@ -20,7 +20,7 @@ function regCodeCandidates(input) {
   const candidates = new Set();
   candidates.add(s);
 
-  // If user pastes "CHOKBANK::EVK2-VF3O-HOID"
+  // If user pastes
   if (s.includes("::")) {
     const after = s.split("::").pop();
     if (after) candidates.add(after);
@@ -160,7 +160,7 @@ function instructionMessage(isRegistered) {
     "This bot links your EverOn device.\n\n" +
     "Tap *Register* or paste your registration code.\n\n" +
     "Example code format:\n" +
-    "`EVK2-VF3O-HOID`"
+    "`XXXX-XXXX-XXXX`"
   );
 }
 
@@ -179,7 +179,7 @@ function helpMessage(isRegistered) {
         "• /register – Show register prompt\n" +
         "• /help – Show help\n\n" +
         "Then paste your registration code like:\n" +
-        "`EVK2-VF3O-HOID`"
+        "`XXXX-XXXX-XXXX`"
       );
 }
 
@@ -256,7 +256,7 @@ async function run() {
     }
     await sendTelegram(
       chatId,
-      "🔐 *Register Device*\n\nPlease paste your registration code now.\nExample: `EVK2-VF3O-HOID`"
+      "🔐 *Register Device*\n\nPlease paste your registration code now.\nExample: `XXXX-XXXX-XXXX`"
     );
     return;
   }
