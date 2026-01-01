@@ -245,33 +245,34 @@ async function run() {
   const input = msg.text.trim().toUpperCase();
 
   // /start
-  if (input === "/START") {
-    if (alreadyRegistered) {
-      await sendTelegram(
-        chatId,
-        "✅ This chat is already registered.\n\n" +
-          "Use the button below if you need a new device QR.",
-        registeredKeyboard()
-      );
-    } else {
-      await sendTelegram(
-        chatId,
-        "👋 Welcome to EverOn Bot\n\nFor the Store Owner, please register first.",
-        registerKeyboard()
-      );
-    }
-    return;
-  }
-
+  if (input.startsWith("/START")) {
   if (alreadyRegistered) {
     await sendTelegram(
       chatId,
-      "ℹ️ This chat is already registered.\n\n" +
-        "Use *Re-generate Device QR* if you changed device.",
+      "✅ This chat is already registered.\n\n" +
+        "If you changed device, tap below to re-generate QR.",
       registeredKeyboard()
     );
-    return;
+  } else {
+    await sendTelegram(
+      chatId,
+      "👋 Welcome to EverOn Bot\n\nFor the Store Owner, please register first.",
+      registerKeyboard()
+    );
   }
+  return;
+}
+  
+if (alreadyRegistered) {
+  await sendTelegram(
+    chatId,
+    "ℹ️ This chat is already registered.\n\n" +
+      "Use *Re-generate Device QR* if you changed device.",
+    registeredKeyboard()
+  );
+  return;
+}
+
 
   // ----------------------------------------------------
   // Registration code flow
