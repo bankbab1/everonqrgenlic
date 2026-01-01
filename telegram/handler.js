@@ -289,10 +289,14 @@ async function run() {
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
     await sendTelegram(
-      chatId,
-      "✅ *Telegram unlinked successfully.*",
-      commandKeyboard(false)
-    );
+        chatId,
+        "✅ *Telegram unlinked successfully.*\n\n" +
+        "⏳ *Important:*\n" +
+        "This change may take up to *5 minutes* to fully take effect.\n\n" +
+        "During this time, one last payment slip may still be delivered.",
+        commandKeyboard(false)
+      );
+
     return;
   }
 
@@ -349,7 +353,15 @@ async function run() {
   match.telegram_bound_at = new Date().toISOString();
   fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
-  await sendTelegram(chatId, "✅ *Registration successful*", commandKeyboard(true));
+  await sendTelegram(
+     chatId,
+     "✅ *Registration successful*\n\n" +
+     "⏳ *Note:*\n" +
+     "It may take up to *5 minutes* before payment slips start arriving.\n\n" +
+     "Please wait a moment before testing.",
+     commandKeyboard(true)
+   );
+
 
   const qrUrl = buildEveronQRUrl(chatId, SECRET);
   await sendTelegramPhoto(
