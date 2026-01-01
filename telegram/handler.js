@@ -100,6 +100,31 @@ function commandKeyboard(isRegistered) {
 }
 
 /* ----------------------------------------
+   HELP MESSAGE
+---------------------------------------- */
+function helpMessage(isRegistered) {
+  if (isRegistered) {
+    return (
+      "🤖 *EverOn Bot – Help*\n\n" +
+      "Available commands:\n" +
+      "• `/start` – Show current status\n" +
+      "• `/regenqr` – Re-generate device QR\n" +
+      "• `/unregister` – Unlink this Telegram\n" +
+      "• `/help` – Show this help message"
+    );
+  }
+
+  return (
+    "🤖 *EverOn Bot – Help*\n\n" +
+    "Available commands:\n" +
+    "• `/start` – Start registration\n" +
+    "• `/register` – Register device (or just paste code)\n" +
+    "• `/help` – Show this help message\n\n" +
+    "_After /start or /register, paste your registration code._"
+  );
+}
+
+/* ----------------------------------------
    MAIN HANDLER
 ---------------------------------------- */
 async function run() {
@@ -126,14 +151,38 @@ async function run() {
 
   const input = msg.text.trim().toUpperCase();
 
-  /* ---------- /START or /HELP ---------- */
-  if (input === "/START" || input === "/HELP") {
+  /* ---------- /START ---------- */
+  if (input === "/START") {
     await sendTelegram(
       chatId,
       alreadyRegistered
         ? "🤖 *EverOn Bot*\n\nYou are already registered."
         : "🤖 *EverOn Bot*\n\nPlease enter your registration code.",
       commandKeyboard(!!alreadyRegistered)
+    );
+    return;
+  }
+
+  /* ---------- /HELP ---------- */
+  if (input === "/HELP") {
+    await sendTelegram(
+      chatId,
+      helpMessage(!!alreadyRegistered),
+      commandKeyboard(!!alreadyRegistered)
+    );
+    return;
+  }
+
+  /* ---------- /REGISTER (PROMPT ONLY) ---------- */
+  if (input === "/REGISTER") {
+    if (alreadyRegistered) {
+      await sendTelegram(chatId, "✅ You are already registered.");
+      return;
+    }
+
+    await sendTelegram(
+      chatId,
+      "🔐 *Register Device*\n\nPlease paste your registration code now."
     );
     return;
   }
@@ -177,7 +226,7 @@ async function run() {
   if (alreadyRegistered) {
     await sendTelegram(
       chatId,
-      "✅ You are already registered.",
+      "✅ You are already registered.\nUse `/help` to see available commands.",
       commandKeyboard(true)
     );
     return;
