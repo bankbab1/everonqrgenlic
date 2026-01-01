@@ -34,7 +34,6 @@ function buildEveronQRUrl(chatId, secret) {
   const deepLink =
     `everon://telegram-link?payload=` + encodeURIComponent(base64);
 
-  // QR image service
   return (
     "https://api.qrserver.com/v1/create-qr-code/?" +
     "size=360x360&data=" +
@@ -42,7 +41,9 @@ function buildEveronQRUrl(chatId, secret) {
   );
 }
 
-
+// --------------------
+// Telegram helpers
+// --------------------
 async function sendTelegram(chatId, text, keyboard = null) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -56,9 +57,7 @@ async function sendTelegram(chatId, text, keyboard = null) {
     parse_mode: "Markdown",
   };
 
-  if (keyboard) {
-    body.reply_markup = keyboard;
-  }
+  if (keyboard) body.reply_markup = keyboard;
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
@@ -88,17 +87,21 @@ async function sendTelegramPhoto(chatId, photoUrl, caption = "") {
   });
 }
 
-
-// Standard register button
+// --------------------
+// Keyboards
+// --------------------
 function registerKeyboard() {
   return {
     inline_keyboard: [
-      [
-        {
-          text: "🔐 Register",
-          callback_data: "REGISTER",
-        },
-      ],
+      [{ text: "🔐 Register", callback_data: "REGISTER" }],
+    ],
+  };
+}
+
+function registeredKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🔄 Re-generate Device QR", callback_data: "REGEN_QR" }],
     ],
   };
 }
@@ -121,15 +124,11 @@ async function run() {
   }
 
   // ====================================================
-  // 1️⃣ HANDLE GITHUB → SEND TEST (FIRST, NO DB LOGIC)
+  // 1️⃣ GITHUB → SEND TEST
   // ====================================================
   if (payload.type === "SEND_TEST") {
     const chatId = payload.chat_id;
-
-    if (!chatId) {
-      console.error("Missing chat_id for SEND_TEST");
-      return;
-    }
+    if (!chatId) return;
 
     await sendTelegram(
       chatId,
@@ -137,72 +136,58 @@ async function run() {
         "✅ Telegram connection is working correctly.\n\n" +
         "You will receive real payment slips here."
     );
-
-    return; // ⛔ STOP HERE
-  }
-
-  // ====================================================
-// 1️⃣ HANDLE GITHUB → SEND SLIP IMAGE
-// ====================================================
-if (payload.type === "SEND_SLIP") {
-  const { chat_id, image_base64, meta } = payload;
-
-  if (!chat_id || !image_base64) {
-    console.error("Missing chat_id or image_base64");
     return;
   }
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    console.error("TELEGRAM_BOT_TOKEN missing");
+  // ====================================================
+  // 2️⃣ GITHUB → SEND SLIP IMAGE
+  // ====================================================
+  if (payload.type === "SEND_SLIP") {
+    const { chat_id, image_base64, meta } = payload;
+    if (!chat_id || !image_base64) return;
+
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) return;
+
+    const buffer = Buffer.from(image_base64, "base64");
+
+    const caption =
+      "🧾 *Payment Slip Received*\n\n" +
+      `🏦 Bank: ${meta?.bank ?? "-"}\n` +
+      `🔢 Ref: ${meta?.ref ?? "-"}\n` +
+      `💰 Amount: ${meta?.amount ?? "-"}`;
+
+    const form = new FormData();
+    form.append("chat_id", chat_id);
+    form.append("caption", caption);
+    form.append("parse_mode", "Markdown");
+    form.append("photo", buffer, {
+      filename: "payment_slip.jpg",
+      contentType: "image/jpeg",
+    });
+
+    await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: "POST",
+      body: form,
+    });
+
+    console.log("✅ Payment slip sent");
     return;
   }
 
-  // Convert base64 → Buffer
-  const buffer = Buffer.from(image_base64, "base64");
-
-  // Build caption
-  const caption =
-    "🧾 *Payment Slip Received*\n\n" +
-    `🏦 Bank: ${meta?.bank ?? "-"}\n` +
-    `🔢 Ref: ${meta?.ref ?? "-"}\n` +
-    `💰 Amount: ${meta?.amount ?? "-"}`;
-
-  // Send multipart/form-data to Telegram
-  const form = new FormData();
-  form.append("chat_id", chat_id);
-  form.append("caption", caption);
-  form.append("parse_mode", "Markdown");
-  form.append("photo", buffer, {
-    filename: "payment_slip.jpg",
-    contentType: "image/jpeg",
-  });
-
-  await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-    method: "POST",
-    body: form,
-  });
-
-  console.log("✅ Payment slip sent to Telegram");
-  return; // ⛔ STOP HERE
-}
-
-  
   // ====================================================
-  // 2️⃣ TELEGRAM MESSAGE HANDLING (ONLY BELOW)
+  // 3️⃣ TELEGRAM MESSAGE HANDLING
   // ====================================================
-
   const dbPath = "registration.json";
   const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
 
   let chatId = null;
-
   if (payload.message?.chat?.id) {
     chatId = payload.message.chat.id;
   } else if (payload.callback_query?.message?.chat?.id) {
     chatId = payload.callback_query.message.chat.id;
   } else {
-    return; // nothing to do
+    return;
   }
 
   const alreadyRegistered = db.registrations.find(
@@ -210,14 +195,18 @@ if (payload.type === "SEND_SLIP") {
   );
 
   // ----------------------------------------------------
-  // Button click
+  // Callback buttons
   // ----------------------------------------------------
   if (payload.callback_query) {
-    if (payload.callback_query.data === "REGISTER") {
+    const action = payload.callback_query.data;
+
+    if (action === "REGISTER") {
       if (alreadyRegistered) {
         await sendTelegram(
           chatId,
-          "✅ This chat is already registered.\n\nYou will receive EverOn notifications here."
+          "✅ This chat is already registered.\n\n" +
+            "If you changed device, re-generate a new QR below.",
+          registeredKeyboard()
         );
       } else {
         await sendTelegram(
@@ -225,12 +214,30 @@ if (payload.type === "SEND_SLIP") {
           "🧾 Please send your *Registration Code*.\n\nExample:\nABC123XYZ"
         );
       }
+      return;
     }
-    return;
+
+    if (action === "REGEN_QR") {
+      if (!alreadyRegistered) {
+        await sendTelegram(chatId, "❌ This chat is not registered yet.");
+        return;
+      }
+
+      const qrUrl = buildEveronQRUrl(chatId, SECRET);
+
+      await sendTelegramPhoto(
+        chatId,
+        qrUrl,
+        "🔐 *New EverOn Link QR*\n\n" +
+          "• Valid for 10 minutes\n" +
+          "• Old QR codes are automatically invalid"
+      );
+      return;
+    }
   }
 
   // ----------------------------------------------------
-  // Text message
+  // Text messages
   // ----------------------------------------------------
   const msg = payload.message;
   if (!msg?.text) return;
@@ -242,7 +249,9 @@ if (payload.type === "SEND_SLIP") {
     if (alreadyRegistered) {
       await sendTelegram(
         chatId,
-        "✅ This chat is already registered.\n\nYou will receive EverOn notifications here."
+        "✅ This chat is already registered.\n\n" +
+          "Use the button below if you need a new device QR.",
+        registeredKeyboard()
       );
     } else {
       await sendTelegram(
@@ -254,11 +263,12 @@ if (payload.type === "SEND_SLIP") {
     return;
   }
 
-  // Block already registered
   if (alreadyRegistered) {
     await sendTelegram(
       chatId,
-      "ℹ️ This chat is already registered.\n\nNo further action is required."
+      "ℹ️ This chat is already registered.\n\n" +
+        "Use *Re-generate Device QR* if you changed device.",
+      registeredKeyboard()
     );
     return;
   }
@@ -272,7 +282,7 @@ if (payload.type === "SEND_SLIP") {
   if (!match) {
     await sendTelegram(
       chatId,
-      "❌ Invalid registration code.\n\nFor the Store Owner, please register first.",
+      "❌ Invalid registration code.\n\nPlease try again.",
       registerKeyboard()
     );
     return;
@@ -286,16 +296,12 @@ if (payload.type === "SEND_SLIP") {
     return;
   }
 
-  if (match.valid_until) {
-    const now = new Date();
-    const until = new Date(match.valid_until);
-    if (now > until) {
-      await sendTelegram(
-        chatId,
-        "⛔ This registration has expired.\nPlease renew your subscription."
-      );
-      return;
-    }
+  if (match.valid_until && new Date() > new Date(match.valid_until)) {
+    await sendTelegram(
+      chatId,
+      "⛔ This registration has expired.\nPlease renew your subscription."
+    );
+    return;
   }
 
   if (match.telegram_chat_id && match.telegram_chat_id !== chatId) {
@@ -311,7 +317,7 @@ if (payload.type === "SEND_SLIP") {
   match.telegram_bound_at = new Date().toISOString();
   fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
-  // Success + QR
+  // Send initial QR
   await sendTelegram(
     chatId,
     "✅ *Registration successful*\n\n" +
@@ -323,11 +329,10 @@ if (payload.type === "SEND_SLIP") {
     chatId,
     qrUrl,
     "🔐 *Secure EverOn Link QR*\n\n" +
-      "• Only EverOn devices can use this QR\n" +
-      "• QR expires automatically"
+      "• Valid for 10 minutes\n" +
+      "• Only EverOn devices can use this QR"
   );
 }
-
 
 // --------------------
 run().catch((err) => {
