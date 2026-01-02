@@ -13,25 +13,22 @@ function looksLikeRegCode(input) {
   return /^[A-Z0-9:-]{6,64}$/.test(input); // allow - and :
 }
 
-// Generate candidate strings to hash (to match how reg_hash might be generated)
+// Generate candidate strings to hash
 function regCodeCandidates(input) {
   const s = input.trim().toUpperCase().replace(/\s+/g, "");
 
   const candidates = new Set();
   candidates.add(s);
 
-  // If user pastes
   if (s.includes("::")) {
     const after = s.split("::").pop();
     if (after) candidates.add(after);
   }
 
-  // Common normalization: remove hyphens
   candidates.forEach((c) => {
     candidates.add(c.replace(/-/g, ""));
   });
 
-  // Also if after ::, remove hyphens too
   if (s.includes("::")) {
     const after = s.split("::").pop() || "";
     candidates.add(after.replace(/-/g, ""));
@@ -228,7 +225,6 @@ async function run() {
 
   const input = msg.text.trim().toUpperCase();
 
-  // /START
   if (input === "/START") {
     await sendTelegram(
       chatId,
@@ -238,7 +234,6 @@ async function run() {
     return;
   }
 
-  // /HELP
   if (input === "/HELP") {
     await sendTelegram(
       chatId,
@@ -248,7 +243,6 @@ async function run() {
     return;
   }
 
-  // /REGISTER or button "🔐 Register"
   if (input === "/REGISTER" || input === "🔐 REGISTER") {
     if (alreadyRegistered) {
       await sendTelegram(chatId, "✅ You are already registered.");
@@ -261,7 +255,6 @@ async function run() {
     return;
   }
 
-  // /REGENQR
   if (input === "/REGENQR") {
     if (!alreadyRegistered) {
       await sendTelegram(chatId, "❌ Please register first using /start");
@@ -277,7 +270,6 @@ async function run() {
     return;
   }
 
-  // /UNREGISTER
   if (input === "/UNREGISTER") {
     if (!alreadyRegistered) {
       await sendTelegram(chatId, "❌ This Telegram is not registered.");
@@ -289,20 +281,15 @@ async function run() {
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
     await sendTelegram(
-        chatId,
-        "✅ *Telegram unlinked successfully.*\n\n" +
+      chatId,
+      "✅ *Telegram unlinked successfully.*\n\n" +
         "⏳ *Important:*\n" +
-        "This change may take up to *5 minutes* to fully take effect.\n\n" +
-        "During this time, one last payment slip may still be delivered.",
-        commandKeyboard(false)
-      );
-
+        "This change may take up to *5 minutes* to fully take effect.",
+      commandKeyboard(false)
+    );
     return;
   }
 
-  /* ----------------------------------------
-     ALREADY REGISTERED → SHOW HELP
-  ---------------------------------------- */
   if (alreadyRegistered) {
     await sendTelegram(
       chatId,
@@ -312,10 +299,6 @@ async function run() {
     return;
   }
 
-  /* ----------------------------------------
-     REGISTRATION CODE FLOW
-     (NOW SUPPORTS HYPHEN CODES)
-  ---------------------------------------- */
   if (!looksLikeRegCode(input)) {
     await sendTelegram(
       chatId,
@@ -325,7 +308,6 @@ async function run() {
     return;
   }
 
-  // Try multiple candidate formats to match your reg_hash generator
   const candidates = regCodeCandidates(input);
 
   let match = null;
@@ -343,25 +325,37 @@ async function run() {
     return;
   }
 
-  // (Optional) if you want to enforce status/date, uncomment below:
-  // if (String(match.status || "").toLowerCase() !== "active") {
-  //   await sendTelegram(chatId, "❌ Registration inactive or expired.");
-  //   return;
-  // }
+  // 🔒 DO NOT OVERWRITE OWNERSHIP
+  if (match.telegram_chat_id) {
+    if (match.telegram_chat_id === chatId) {
+      await sendTelegram(
+        chatId,
+        "✅ This device is already registered to this Telegram.",
+        commandKeyboard(true)
+      );
+    } else {
+      await sendTelegram(
+        chatId,
+        "❌ *Already registered*\n\n" +
+          "This registration code is already linked to another Telegram account.\n\n" +
+          "If you are the owner, please unregister from the original Telegram first."
+      );
+    }
+    return;
+  }
 
+  // ✅ SAFE TO BIND
   match.telegram_chat_id = chatId;
   match.telegram_bound_at = new Date().toISOString();
   fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
   await sendTelegram(
-     chatId,
-     "✅ *Registration successful*\n\n" +
-     "⏳ *Note:*\n" +
-     "It may take up to *5 minutes* before payment slips start arriving.\n\n" +
-     "Please wait a moment before testing.",
-     commandKeyboard(true)
-   );
-
+    chatId,
+    "✅ *Registration successful*\n\n" +
+      "⏳ *Note:*\n" +
+      "It may take up to *5 minutes* before payment slips start arriving.",
+    commandKeyboard(true)
+  );
 
   const qrUrl = buildEveronQRUrl(chatId, SECRET);
   await sendTelegramPhoto(
