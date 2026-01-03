@@ -8,7 +8,7 @@
       "shop_name": "Shop A",
       "status": "active",
       "valid_from": "2026-01-01",
-      "valid_until": "2026-01-01",
+      "valid_until": "2030-01-01",
       "paid_at": "2025-01-01",
       "max_devices": 3,
       "telegram_chat_id": 1620901429,
