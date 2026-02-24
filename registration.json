@@ -5,15 +5,15 @@
     {
       "reg_hash": "1d27fa64db7ef8799cca496ea14042b070a2a151a28eba23f34dceceedf9a23b",
       "reg_hint": "Q0hPS0JBTks6OkVWMEUtR0VBQS1aRTQ0",
-      "shop_name": "Shop A",
+      "shop_name": "260224J22MBF0X",
       "status": "active",
-      "valid_from": "2026-01-01",
-      "valid_until": "2030-01-01",
-      "paid_at": "2025-01-01",
+      "valid_from": "",
+      "valid_until": "",
+      "paid_at": "2026-02-24",
       "max_devices": 3,
       "telegram_chat_id": null,
       "telegram_bound_at": null,
-      "notes": ""
+      "notes": "260224J22MBF0X 24/02/2026 15:25"
     },
     {
       "reg_hash": "f23f225b35647c2d2ec19d10e18e21430c62fb9d3496a5b1d4144210783c6b81",
