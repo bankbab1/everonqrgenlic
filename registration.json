@@ -11,8 +11,8 @@
       "valid_until": "2027-03-01",
       "paid_at": "2026-02-26",
       "max_devices": 3,
-      "telegram_chat_id": null,
-      "telegram_bound_at": null,
+      "telegram_chat_id": 1620901429,
+      "telegram_bound_at": "2026-02-25T23:55:15.645Z",
       "notes": "260226NFAK41TB - 26/02/2026 00:11 (koolludo)"
     },
     {
